@@ -1,8 +1,13 @@
 import { cors } from "hono/cors";
-import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
+import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
 import { Scalar } from "@scalar/hono-api-reference";
 
+// --- LOCAL MODULES ---
 import { db } from "./lib/db";
+import { signToken } from "./lib/token";
+import { checkAuthorized } from "./modules/auth/middleware";
+
+// --- SCHEMAS ---
 import {
   ProductSlugParamSchema,
   ProductSchema,
@@ -17,13 +22,37 @@ import {
   UsersSchema,
   PrivateUserSchema,
 } from "./modules/user/schema";
-import { signToken } from "./lib/token";
-import { checkAuthorized } from "./modules/auth/middleware";
+import { CartItemSchema } from "./modules/cart/schema";
 
 const app = new OpenAPIHono();
 
+// ==========================================
+// 1. GLOBAL MIDDLEWARE
+// ==========================================
 app.use(cors());
 
+// ==========================================
+// 2. OPENAPI & SCALAR UI CONFIGURATION
+// ==========================================
+app.doc("/openapi.json", {
+  openapi: "3.0.0",
+  info: {
+    title: "Clothify API",
+    version: "1.0.0",
+  },
+});
+
+app.get(
+  "/",
+  Scalar({
+    pageTitle: "Clothify API Reference",
+    url: "/openapi.json",
+  }),
+);
+
+// ==========================================
+// 3. ROUTES: PRODUCTS
+// ==========================================
 app.openapi(
   createRoute({
     method: "get",
@@ -37,9 +66,8 @@ app.openapi(
   }),
   async (c) => {
     const products = await db.product.findMany();
-
     return c.json(products);
-  }
+  },
 );
 
 app.openapi(
@@ -59,17 +87,16 @@ app.openapi(
   }),
   async (c) => {
     const { slug } = c.req.valid("param");
-
     const product = await db.product.findUnique({ where: { slug } });
 
-    if (!product) {
-      return c.notFound();
-    }
-
+    if (!product) return c.notFound();
     return c.json(product);
-  }
+  },
 );
 
+// ==========================================
+// 4. ROUTES: USERS
+// ==========================================
 app.openapi(
   createRoute({
     method: "get",
@@ -83,15 +110,12 @@ app.openapi(
   }),
   async (c) => {
     const users = await db.user.findMany({
-      omit: {
-        email: true,
-      },
+      omit: { email: true },
     });
-
     return c.json(users);
-  }
+  },
 );
-// GET User By ID
+
 app.openapi(
   createRoute({
     method: "get",
@@ -109,23 +133,19 @@ app.openapi(
   }),
   async (c) => {
     const { id } = c.req.valid("param");
-
     const user = await db.user.findUnique({
       where: { id },
-      omit: {
-        email: true,
-      },
+      omit: { email: true },
     });
 
-    if (!user) {
-      return c.notFound();
-    }
-
+    if (!user) return c.notFound();
     return c.json(user);
-  }
+  },
 );
 
-// Register User
+// ==========================================
+// 5. ROUTES: AUTHENTICATION
+// ==========================================
 app.openapi(
   createRoute({
     method: "post",
@@ -145,10 +165,8 @@ app.openapi(
   }),
   async (c) => {
     const body = c.req.valid("json");
-
     try {
       const hash = await Bun.password.hash(body.password);
-
       const user = await db.user.create({
         data: {
           username: body.username,
@@ -157,15 +175,13 @@ app.openapi(
           password: { create: { hash } },
         },
       });
-
       return c.json(user, 201);
     } catch (error) {
       return c.json({ message: "Username or email already exist" }, 400);
     }
-  }
+  },
 );
 
-// Login User
 app.openapi(
   createRoute({
     method: "post",
@@ -178,71 +194,36 @@ app.openapi(
         description: "Logged in to user",
         content: { "text/plain": { schema: TokenSchema } },
       },
-      400: {
-        description: "Failed to login user",
-      },
-      404: {
-        description: "User not found",
-      },
+      400: { description: "Failed to login user" },
+      404: { description: "User not found" },
     },
   }),
   async (c) => {
     const body = c.req.valid("json");
-
     try {
       const user = await db.user.findUnique({
         where: { email: body.email },
-        include: {
-          password: true,
-        },
+        include: { password: true },
       });
-      if (!user) {
-        return c.notFound();
-      }
 
-      if (!user.password?.hash) {
-        return c.json({
-          message: "User has no password",
-        });
-      }
+      if (!user) return c.notFound();
+      if (!user.password?.hash)
+        return c.json({ message: "User has no password" });
 
       const isMatch = await Bun.password.verify(
         body.password,
-        user.password.hash
+        user.password.hash,
       );
-
-      if (!isMatch) {
-        return c.json({
-          message: "Password incorrect",
-        });
-      }
+      if (!isMatch) return c.json({ message: "Password incorrect" });
 
       const token = await signToken(user.id);
-
       return c.text(token);
     } catch (error) {
       return c.json({ message: "Email or password is incorrect" }, 400);
     }
-  }
-);
-
-app.doc("/openapi.json", {
-  openapi: "3.0.0",
-  info: {
-    title: "Clohify API",
-    version: "1.0.0",
   },
-});
-
-app.get(
-  "/",
-  Scalar({
-    pageTitle: "Clohify API",
-    url: "/openapi.json",
-  })
 );
 
-// GET /auth/me
 app.openapi(
   createRoute({
     method: "get",
@@ -257,25 +238,128 @@ app.openapi(
   }),
   async (c) => {
     const user = c.get("user");
-
     return c.json(user);
-  }
-);
-
-app.doc("/openapi.json", {
-  openapi: "3.0.0",
-  info: {
-    title: "Clothify API",
-    version: "1.0.0",
   },
-});
-
-app.get(
-  "/",
-  Scalar({
-    pageTitle: "Clothify API",
-    url: "/openapi.json",
-  })
 );
+
+// ==========================================
+// 6. ROUTES: CART
+// ==========================================
+app.openapi(
+  createRoute({
+    method: "get",
+    path: "/cart", // FIX: Sebelumnya "/", ini bentrok sama Scalar UI
+    middleware: checkAuthorized,
+    responses: {
+      200: {
+        description: "Get cart",
+        content: { "application/json": { schema: CartItemSchema } },
+      },
+      404: { description: "Cart not found" },
+    },
+  }),
+  async (c) => {
+    const user = c.get("user");
+    const cart = await db.cart.findFirst({
+      where: { userId: user.id },
+      include: { items: { include: { product: true } } },
+    });
+
+    if (!cart) {
+      const newCart = await db.cart.create({
+        data: { userId: user.id },
+        include: { items: { include: { product: true } } },
+      });
+      return c.json(newCart);
+    }
+
+    return c.json(cart);
+  },
+);
+
+app.openapi(
+  createRoute({
+    method: "post",
+    path: "/cart/items", // FIX: Sebelumnya "/items"
+    middleware: checkAuthorized,
+    request: {
+      body: { content: { "application/json": { schema: CartItemSchema } } },
+    },
+    responses: {
+      200: {
+        description: "Add item to cart",
+        content: { "application/json": { schema: CartItemSchema } },
+      },
+      400: { description: "Failed to add item to cart" },
+    },
+  }),
+  async (c) => {
+    try {
+      const body = c.req.valid("json");
+      const user = c.get("user");
+
+      const cart = await db.cart.findFirst({
+        where: { userId: user.id },
+      });
+
+      if (!cart) return c.json({ message: "Cart not found" }, 400);
+
+      const existingItem = await db.cartItem.findFirst({
+        where: { cartId: cart.id, productId: body.productId },
+      });
+
+      if (existingItem) {
+        const updatedItem = await db.cartItem.update({
+          where: { id: existingItem.id },
+          data: { quantity: existingItem.quantity + body.quantity },
+          include: { product: true },
+        });
+        return c.json(updatedItem);
+      }
+
+      const newCartItem = await db.cartItem.create({
+        data: {
+          cartId: cart.id,
+          productId: body.productId,
+          quantity: body.quantity,
+        },
+        include: { product: true },
+      });
+
+      return c.json(newCartItem);
+    } catch (error) {
+      console.log(error);
+      return c.json({ message: "Failed to add item to cart" }, 400);
+    }
+  },
+);
+
+/* // Route Delete Cart Item (Masih di-comment, tapi path sudah dirapihkan)
+app.openapi(
+  createRoute({
+    method: "delete",
+    path: "/cart/items/{id}",
+    middleware: checkAuthorized,
+    responses: {
+      200: { description: "Cart item deleted successfully" },
+      404: { description: "Cart item not found" },
+    },
+  }),
+  async (c) => {
+    try {
+      const id = c.req.param("id");
+      const item = await db.cartItem.findUnique({ where: { id: id } });
+
+      if (!item) return c.json({ message: "Cart item not found" }, 404);
+
+      await db.cartItem.delete({ where: { id: id } });
+      return c.json({ message: `Cart item '${id}' deleted successfully`, deletedItem: item });
+    } catch (error) {
+      console.error(error);
+      return c.json({ error: "Failed to delete cart item" }, 400);
+    }
+  },
+);
+*/
 
 export default app;

@@ -1,11 +1,9 @@
-import { PrismaClient } from "../src/generated/prisma";
+import { db } from "../src/lib/db";
 import { dataProducts } from "./data/products";
-
-const prisma = new PrismaClient();
 
 async function main() {
   for (const dataProduct of dataProducts) {
-    const upsertedProduct = await prisma.product.upsert({
+    const upsertedProduct = await db.product.upsert({
       where: { slug: dataProduct.slug },
       update: dataProduct,
       create: dataProduct,
@@ -17,10 +15,10 @@ async function main() {
 
 main()
   .then(async () => {
-    await prisma.$disconnect();
+    await db.$disconnect();
   })
   .catch(async (e) => {
     console.error(e);
-    await prisma.$disconnect();
+    await db.$disconnect();
     process.exit(1);
   });
