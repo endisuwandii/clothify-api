@@ -22,7 +22,7 @@ import {
   UsersSchema,
   PrivateUserSchema,
 } from "./modules/user/schema";
-import { CartItemSchema } from "./modules/cart/schema";
+import { AddCartItemSchema, CartItemSchema } from "./modules/cart/schema";
 
 const app = new OpenAPIHono();
 
@@ -280,14 +280,16 @@ app.openapi(
 app.openapi(
   createRoute({
     method: "post",
-    path: "/cart/items", // FIX: Sebelumnya "/items"
+    path: "/cart/item",
     middleware: checkAuthorized,
     request: {
-      body: { content: { "application/json": { schema: CartItemSchema } } },
+      // ✅ REQUEST: Pake yang santai (Frontend cuma ngirim ID & Quantity)
+      body: { content: { "application/json": { schema: AddCartItemSchema } } },
     },
     responses: {
       200: {
         description: "Add item to cart",
+        // ✅ RESPONSE: Pake yang ketat (Backend ngembaliin data lengkap)
         content: { "application/json": { schema: CartItemSchema } },
       },
       400: { description: "Failed to add item to cart" },
@@ -298,16 +300,24 @@ app.openapi(
       const body = c.req.valid("json");
       const user = c.get("user");
 
-      const cart = await db.cart.findFirst({
+      // 1. Cari keranjang user (Pake 'let' biar bisa diisi ulang)
+      let cart = await db.cart.findFirst({
         where: { userId: user.id },
       });
 
-      if (!cart) return c.json({ message: "Cart not found" }, 400);
+      // 2. LOGIKA BARU: Kalau keranjang belum ada, bikinin otomatis!
+      if (!cart) {
+        cart = await db.cart.create({
+          data: { userId: user.id },
+        });
+      }
 
+      // 3. Cek apakah barang udah ada di keranjang
       const existingItem = await db.cartItem.findFirst({
         where: { cartId: cart.id, productId: body.productId },
       });
 
+      // 4. Kalau barang udah ada, tambahin aja quantity-nya
       if (existingItem) {
         const updatedItem = await db.cartItem.update({
           where: { id: existingItem.id },
@@ -317,6 +327,7 @@ app.openapi(
         return c.json(updatedItem);
       }
 
+      // 5. Kalau barang belum ada, bikin item baru di keranjang
       const newCartItem = await db.cartItem.create({
         data: {
           cartId: cart.id,

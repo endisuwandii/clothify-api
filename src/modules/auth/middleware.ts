@@ -43,6 +43,7 @@ export const checkAuthorized = createMiddleware<Env>(async (c, next) => {
 
     await next();
   } catch (error) {
+    console.error("🚨 ERROR DI MIDDLEWARE:", error);
     return c.json({ message: "Failed to check authorized user" }, 401);
   }
 });
