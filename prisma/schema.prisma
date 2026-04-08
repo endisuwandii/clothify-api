@@ -5,45 +5,94 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-
+  // Catatan: Nanti pastikan lu naruh url = env("DATABASE_URL") di sini buat konek ke DB
 }
 
 model Product {
-  id       String @id @default(ulid())
-  slug     String @unique
-  name     String
-  imageUrl String
+  id          String   @id @default(ulid())
+  slug        String   @unique
+  name        String
+  imageUrl    String
 
   price       Int
   stock       Int
-  description String @db.Text
+  description String   @db.Text
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // [PERBAIKAN]: BALIKAN RELASI (Inverse Relation)
+  // Wajib ada biar Prisma tau kalau 1 Produk bisa masuk ke banyak keranjang (CartItem) milik user lain.
+  cartItems   CartItem[]
 }
 
 model User {
-  id String @id @default(ulid())
+  id        String   @id @default(ulid())
 
-  username String @unique
-  email    String @unique
+  username  String   @unique
+  email     String   @unique
 
-  fullName String?
+  fullName  String?
 
-  password Password?
+  // Relasi ke tabel Password (One-to-One)
+  password  Password?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // [PERBAIKAN]: BALIKAN RELASI (Inverse Relation)
+  // Karena 1 User cuma punya 1 Keranjang aktif, kita pakai tanda tanya (?) 
+  // Artinya opsional: saat user baru daftar, dia belum punya keranjang.
+  cart      Cart?
+}
+
+model Password {
+  id        String   @id @default(ulid())
+
+  hash      String
+
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-model Password {
-  id String @id @default(ulid())
+model Cart {
+  id        String   @id @default(ulid())
 
-  hash String
+  // Relasi ke CartItem (1 Keranjang bisa berisi banyak barang)
+  items     CartItem[]
 
-  userId String @unique
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // [PERBAIKAN]: ONE-TO-ONE RELATION
+  // Tambahan @unique pada userId memastikan 1 User tidak bisa bikin keranjang ganda.
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model CartItem {
+  id        String   @id @default(ulid())
+
+  quantity  Int
+
+  // Relasi ke Product
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onUpdate: Cascade)
+
+  // [PERBAIKAN]: CASCADE DELETE
+  // Tambahan onDelete: Cascade bikin rapi. 
+  // Kalau Keranjangnya (Cart) dihapus saat user checkout, semua item di dalamnya ikut hangus dari database otomatis.
+  cartId    String
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // [PERBAIKAN PENTING]: COMPOUND UNIQUE (Kunci Pengaman)
+  // Mencegah barang yang sama masuk 2 kali sebagai baris baru di keranjang yang sama.
+  // Saat lu ngoding logic API-nya nanti, lu tinggal cek: kalau barang udah ada, update 'quantity'-nya aja.
+  @@unique([cartId, productId])
 }

@@ -32,5 +32,5 @@ export const AddCartItemSchema = z.object({
   productId: z.string(),
   quantity: z.number().default(1),
 });
-
 export type Cart = z.infer<typeof CartSchema>;
+export type CartItem = z.infer<typeof CartItemSchema>;
