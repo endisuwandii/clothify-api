@@ -1,0 +1,2 @@
+[deploy]
+preDeployCommand = "bun db:migrate:deploy"
